@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shock_wave_counter"
+version = "0.1.0"
+description = "A simple CLI tool to count extracorporeal shock wave machine strikes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT License"}
+authors = [
+  {name = "Chad Phillips", email = "chad@apartmentlines.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.scripts]
+swc = "shock_wave_counter.main:main"
+
+[project.urls]
+"Homepage" = "https://github.com/thehunmonkgroup/shock_wave_counter"
