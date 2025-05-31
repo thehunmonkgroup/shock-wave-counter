@@ -10,6 +10,7 @@ import sys
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+import importlib.metadata
 
 from shock_wave_counter import constants
 from shock_wave_counter.database import Database
@@ -148,6 +149,94 @@ class App:
             self.logger.error(f"Failed to query strike summary from database: {e}")
             raise
 
+    def query_strike_details(self, filter_tag: str | None) -> None:
+        """
+        Queries and prints detailed information for each strike entry.
+
+        Entries are grouped by tag (alphabetically, with "Untagged" for None),
+        and then listed by date in descending order. Allows filtering by a specific tag.
+
+        :param filter_tag: An optional tag to filter the detailed entries by.
+        :type filter_tag: str | None
+        """
+        self.logger.debug(f"Querying strike details. Filter tag: '{filter_tag}'")
+        processed_filter_tag: str | None = None
+        if filter_tag:
+            processed_filter_tag = filter_tag.lower()
+            self.logger.debug(f"Processed filter tag for details: '{processed_filter_tag}'")
+
+        try:
+            entries = self.db.get_strike_details(tag=processed_filter_tag)
+            self.logger.debug(f"Retrieved {len(entries)} strike entries for details.")
+
+            if not entries:
+                if processed_filter_tag:
+                    print(f"No strike entries found for tag '{processed_filter_tag}'.")
+                else:
+                    print("No strike entries recorded yet.")
+                return
+
+            entries_by_tag: dict[str, list[dict]] = {}
+            for db_tag, dt_str, count in entries:
+                tag_key = db_tag if db_tag is not None else "Untagged"
+                if tag_key not in entries_by_tag:
+                    entries_by_tag[tag_key] = []
+                
+                # Ensure datetime string is compatible with fromisoformat
+                # SQLite stores it from datetime.isoformat() which is compatible
+                dt_obj = datetime.fromisoformat(dt_str)
+                entries_by_tag[tag_key].append({"datetime": dt_obj, "count": count})
+
+            # Sort tags alphabetically for consistent output
+            # "Untagged" will be sorted based on the letter 'U'
+            sorted_tags = sorted(entries_by_tag.keys())
+
+            for i, tag_key in enumerate(sorted_tags):
+                if i > 0: # Add a newline between tag groups for readability
+                    print()
+                
+                if tag_key == "Untagged":
+                    print("Untagged Entries:")
+                else:
+                    print(f"Details for Tag '{tag_key}':")
+
+                # Entries from DB are already sorted by datetime DESC within each tag group
+                # if the DB query included ORDER BY tag, datetime DESC.
+                # If not, or to be absolutely sure, sort here.
+                # The current DB query sorts by LOWER(tag), entry_datetime DESC.
+                # So, items within entries_by_tag[tag_key] are already sorted by datetime.
+                
+                for entry in entries_by_tag[tag_key]:
+                    # Convert UTC datetime object to local timezone
+                    local_dt = entry["datetime"].astimezone()
+                    # Format datetime: YYYY-MM-DD HH:MM:SS TZN (Timezone Name)
+                    formatted_dt = local_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+                    print(f"  {formatted_dt} - {entry['count']} strikes")
+
+        except Exception as e:
+            self.logger.error(f"Failed to query strike details from database: {e}")
+            raise
+
+    def display_app_info(self) -> None:
+        """
+        Displays application information such as version and database path.
+        """
+        self.logger.debug("Displaying application info.")
+        try:
+            version = importlib.metadata.version(constants.APP_NAME)
+        except importlib.metadata.PackageNotFoundError:
+            self.logger.warning(
+                f"Could not find package metadata for '{constants.APP_NAME}'. "
+                "Version will be reported as 'unknown'. "
+                "This can happen if the package is not installed correctly."
+            )
+            version = "unknown"
+
+        print(f"{constants.APP_NAME.replace('_', ' ').title()} Information:")
+        print(f"  Version: {version}")
+        print(f"  Database Path: {self.db.db_path.resolve()}")
+        # Add any other relevant info here in the future
+
 
 def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     """
@@ -172,6 +261,18 @@ def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         "--summary",
         action="store_true",
         help="Display a summary of strikes by tag and the grand total.",
+    )
+    parser.add_argument(
+        "-d",
+        "--detail",
+        action="store_true",
+        help="Display detailed strike entries, optionally filtered by --filter-tag.",
+    )
+    parser.add_argument(
+        "-i",
+        "--info",
+        action="store_true",
+        help="Display application information (version, database path, etc.).",
     )
     parser.add_argument(
         "--filter-tag",
@@ -200,54 +301,71 @@ def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
     # Validate argument combinations
     is_add_mode = args.count_to_add is not None
-    is_count_mode = args.count
+    is_add_mode = args.count_to_add is not None
+    is_count_flag = args.count  # True if --count was explicitly passed
     is_filter_tag_mode = args.filter_tag is not None
     is_summary_mode = args.summary
+    is_detail_mode = args.detail
+    is_info_mode = args.info
 
-    # Count how many primary modes are selected
-    modes_selected = sum([is_add_mode and not (is_count_mode or is_filter_tag_mode or is_summary_mode),
-                          is_count_mode and not is_filter_tag_mode, # --count alone
-                          is_filter_tag_mode, # --filter-tag implies count
-                          is_summary_mode])
+    # Determine effective operation and validate argument combinations
+    # Precedence of operations: info, detail, summary, count/filter, add.
 
-
-    if is_summary_mode:
-        if args.count or args.filter_tag or args.count_to_add or args.session_tag:
+    if is_info_mode:
+        if is_detail_mode or is_summary_mode or is_count_flag or is_filter_tag_mode or is_add_mode or args.session_tag:
             parser.error(
-                "--summary cannot be used with --count, --filter-tag, <count_to_add>, or [session_tag]."
+                "--info cannot be used with any other operations or arguments "
+                "(except --debug)."
             )
-    elif is_count_mode or is_filter_tag_mode:
-        if args.count_to_add is not None or args.session_tag is not None:
+        # Ensure other modes are effectively off
+        args.count = False
+        args.summary = False
+        args.detail = False
+        args.count_to_add = None # Not strictly necessary as is_add_mode checks this
+        # args.filter_tag is allowed to be non-None if --info is used,
+        # but it won't be used by the info operation.
+        # To be stricter, we could error if filter_tag is present with --info.
+        # For now, we'll allow it but it will be ignored.
+
+    elif is_detail_mode:
+        if is_summary_mode:
+            parser.error("--summary cannot be used with --detail.")
+        if is_count_flag:  # Explicit --count with --detail
             parser.error(
-                "Positional arguments <count_to_add> and [session_tag] "
-                "are not allowed with --count or --filter-tag."
+                "Explicit --count cannot be used with --detail. "
+                "Use --filter-tag with --detail for filtering detailed entries."
             )
-        if is_filter_tag_mode: # Implicitly enable count mode if filter_tag is used
-            args.count = True
-    elif args.count_to_add is None: # This means we are in add mode by default but no count_to_add
-         parser.error(
-            "<count_to_add> is required unless using --count, --filter-tag, or --summary."
-        )
+        if is_add_mode:  # count_to_add with --detail
+            parser.error("<count_to_add> cannot be used with --detail.")
+        if args.session_tag is not None: # session_tag with --detail
+             parser.error("[session_tag] cannot be used with --detail.")
+        args.count = False # Detail mode overrides count mode logic
 
-    # Ensure only one primary operation mode is effectively chosen
-    # (add, count, filter-tag (which is a form of count), summary)
-    # Add mode is when count_to_add is present AND no query/summary flags are set.
+    elif is_summary_mode:
+        if is_count_flag or is_filter_tag_mode:
+            parser.error("--count or --filter-tag cannot be used with --summary.")
+        if is_add_mode:
+            parser.error("<count_to_add> cannot be used with --summary.")
+        if args.session_tag is not None:
+             parser.error("[session_tag] cannot be used with --summary.")
 
-    active_modes = []
-    if args.summary:
-        active_modes.append("--summary")
-    if args.count or args.filter_tag: # filter_tag implies count
-        active_modes.append("--count/--filter-tag")
-    if args.count_to_add is not None and not (args.summary or args.count or args.filter_tag):
-        active_modes.append("add_entry")
+    elif is_count_flag or is_filter_tag_mode:
+        args.count = True  # Normalize: if filter_tag is used, count operation is implied.
+        if is_add_mode:
+            parser.error(
+                "<count_to_add> and [session_tag] are not allowed with --count or --filter-tag."
+            )
+        if args.session_tag is not None and not is_add_mode: # session_tag without count_to_add
+             parser.error("[session_tag] is only allowed when adding strikes.")
 
-    if len(active_modes) > 1:
-        parser.error(f"Too many operations specified. Choose one of: add entry, --count, --filter-tag, --summary. Got: {', '.join(active_modes)}")
-    elif not active_modes and args.count_to_add is None: # No operation and no count_to_add for default add mode
+    elif is_add_mode:
+        # This is add mode. Ensure no conflicting flags are set.
+        pass # Positional args are present, other flags are not.
+
+    else:  # No count_to_add and no primary operation flags (info, detail, summary, count/filter)
         parser.error(
-            "No operation specified. Provide <count_to_add> or use --count, --filter-tag, or --summary."
+            "<count_to_add> is required unless using --info, --count, --filter-tag, --summary, or --detail."
         )
-
 
     return args
 
@@ -273,10 +391,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         app = App(db_path=constants.DEFAULT_DB_FILE, logger=logger)
 
-        if args.summary:
+        if args.info:
+            logger.debug("Operating in info display mode.")
+            app.display_app_info()
+        elif args.detail:
+            logger.debug("Operating in detail query mode.")
+            app.query_strike_details(filter_tag=args.filter_tag)
+        elif args.summary:
             logger.debug("Operating in summary mode.")
             app.query_summary()
-        elif args.count or args.filter_tag is not None:
+        elif args.count: # True if --count or --filter-tag (and not --info/--detail/--summary)
             logger.debug("Operating in query total strikes mode.")
             app.query_total_strikes(filter_tag=args.filter_tag)
         elif args.count_to_add is not None:

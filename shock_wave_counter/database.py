@@ -118,3 +118,37 @@ class Database:
 
         conn.close()
         return tag_summaries, grand_total
+
+    def get_strike_details(
+        self, tag: str | None = None
+    ) -> list[tuple[str | None, str, int]]:
+        """
+        Retrieves detailed strike entries, optionally filtered by a tag.
+
+        Entries are sorted by tag (case-insensitive, 'Untagged' effectively first
+        due to NULL sorting) and then by entry_datetime in descending order.
+
+        :param tag: An optional tag to filter the strikes by (case-insensitive).
+        :type tag: str | None
+        :return: A list of tuples, where each tuple contains:
+                 (tag_name or None, entry_datetime_iso_string, strikes_count).
+        :rtype: list[tuple[str | None, str, int]]
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        params = []
+        query = """
+            SELECT tag, entry_datetime, strikes_count
+            FROM strike_log
+        """
+
+        if tag:
+            query += " WHERE LOWER(tag) = ?"
+            params.append(tag.lower())
+
+        query += " ORDER BY LOWER(tag) ASC, entry_datetime DESC"
+
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        conn.close()
+        return results
