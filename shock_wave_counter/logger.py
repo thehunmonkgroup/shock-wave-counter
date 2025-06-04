@@ -17,9 +17,8 @@ class Logger:
         level = logging.DEBUG if debug else logging.INFO
         logger = logging.getLogger(name)
         logger.setLevel(level)
-        logger.propagate = False  # Prevent propagation to root logger
+        logger.propagate = False
 
-        # Remove any existing handlers
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
 

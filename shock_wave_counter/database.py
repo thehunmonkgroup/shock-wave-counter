@@ -120,16 +120,18 @@ class Database:
         return tag_summaries, grand_total
 
     def get_strike_details(
-        self, tag: str | None = None
+        self, tag: str | None = None, sort_by_date_first: bool = False
     ) -> list[tuple[str | None, str, int]]:
         """
         Retrieves detailed strike entries, optionally filtered by a tag.
 
-        Entries are sorted by tag (case-insensitive, 'Untagged' effectively first
-        due to NULL sorting) and then by entry_datetime in descending order.
+        Entries can be sorted primarily by tag then date, or primarily by date then tag.
 
         :param tag: An optional tag to filter the strikes by (case-insensitive).
         :type tag: str | None
+        :param sort_by_date_first: If True, sort by date (desc) then tag (asc).
+                                   If False, sort by tag (asc) then date (desc).
+        :type sort_by_date_first: bool
         :return: A list of tuples, where each tuple contains:
                  (tag_name or None, entry_datetime_iso_string, strikes_count).
         :rtype: list[tuple[str | None, str, int]]
@@ -146,7 +148,10 @@ class Database:
             query += " WHERE LOWER(tag) = ?"
             params.append(tag.lower())
 
-        query += " ORDER BY LOWER(tag) ASC, entry_datetime DESC"
+        if sort_by_date_first:
+            query += " ORDER BY DATE(entry_datetime, 'localtime') ASC, LOWER(tag) ASC"
+        else:
+            query += " ORDER BY LOWER(tag) ASC, entry_datetime DESC"
 
         cursor.execute(query, params)
         results = cursor.fetchall()

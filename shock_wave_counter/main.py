@@ -10,6 +10,7 @@ import sys
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 import importlib.metadata
 
 from shock_wave_counter import constants
@@ -149,24 +150,35 @@ class App:
             self.logger.error(f"Failed to query strike summary from database: {e}")
             raise
 
-    def query_strike_details(self, filter_tag: str | None) -> None:
+    def query_strike_details(
+        self, filter_tag: str | None, group_by_date: bool = False
+    ) -> None:
         """
         Queries and prints detailed information for each strike entry.
 
-        Entries are grouped by tag (alphabetically, with "Untagged" for None),
-        and then listed by date in descending order. Allows filtering by a specific tag.
+        Allows filtering by a specific tag.
+        Can group entries by tag first, then date (default), or by date first, then tag.
 
         :param filter_tag: An optional tag to filter the detailed entries by.
         :type filter_tag: str | None
+        :param group_by_date: If True, group entries by date first, then by tag.
+                              Otherwise, group by tag first, then by date.
+        :type group_by_date: bool
         """
-        self.logger.debug(f"Querying strike details. Filter tag: '{filter_tag}'")
+        self.logger.debug(
+            f"Querying strike details. Filter tag: '{filter_tag}', Group by date: {group_by_date}"
+        )
         processed_filter_tag: str | None = None
         if filter_tag:
             processed_filter_tag = filter_tag.lower()
-            self.logger.debug(f"Processed filter tag for details: '{processed_filter_tag}'")
+            self.logger.debug(
+                f"Processed filter tag for details: '{processed_filter_tag}'"
+            )
 
         try:
-            entries = self.db.get_strike_details(tag=processed_filter_tag)
+            entries = self.db.get_strike_details(
+                tag=processed_filter_tag, sort_by_date_first=group_by_date
+            )
             self.logger.debug(f"Retrieved {len(entries)} strike entries for details.")
 
             if not entries:
@@ -176,42 +188,54 @@ class App:
                     print("No strike entries recorded yet.")
                 return
 
-            entries_by_tag: dict[str, list[dict]] = {}
-            for db_tag, dt_str, count in entries:
-                tag_key = db_tag if db_tag is not None else "Untagged"
-                if tag_key not in entries_by_tag:
-                    entries_by_tag[tag_key] = []
-                
-                # Ensure datetime string is compatible with fromisoformat
-                # SQLite stores it from datetime.isoformat() which is compatible
-                dt_obj = datetime.fromisoformat(dt_str)
-                entries_by_tag[tag_key].append({"datetime": dt_obj, "count": count})
+            if group_by_date:
+                self.logger.debug(
+                    "Displaying strike details grouped by local date, ordered by date (asc) then tag (asc)."
+                )
+                current_printed_local_date_header: str | None = None
+                for db_tag, dt_str, count in entries:
+                    dt_obj_utc = datetime.fromisoformat(dt_str)
+                    dt_obj_local = dt_obj_utc.astimezone()
 
-            # Sort tags alphabetically for consistent output
-            # "Untagged" will be sorted based on the letter 'U'
-            sorted_tags = sorted(entries_by_tag.keys())
+                    current_entry_local_date_str_formatted = dt_obj_local.strftime("%a %b %-d %Y")
 
-            for i, tag_key in enumerate(sorted_tags):
-                if i > 0: # Add a newline between tag groups for readability
-                    print()
-                
-                if tag_key == "Untagged":
-                    print("Untagged Entries:")
-                else:
-                    print(f"Details for Tag '{tag_key}':")
+                    if current_entry_local_date_str_formatted != current_printed_local_date_header:
+                        if current_printed_local_date_header is not None:
+                            print()
+                        print(f"{current_entry_local_date_str_formatted}:")
+                        current_printed_local_date_header = current_entry_local_date_str_formatted
 
-                # Entries from DB are already sorted by datetime DESC within each tag group
-                # if the DB query included ORDER BY tag, datetime DESC.
-                # If not, or to be absolutely sure, sort here.
-                # The current DB query sorts by LOWER(tag), entry_datetime DESC.
-                # So, items within entries_by_tag[tag_key] are already sorted by datetime.
-                
-                for entry in entries_by_tag[tag_key]:
-                    # Convert UTC datetime object to local timezone
-                    local_dt = entry["datetime"].astimezone()
-                    # Format datetime: YYYY-MM-DD HH:MM:SS TZN (Timezone Name)
-                    formatted_dt = local_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-                    print(f"  {formatted_dt} - {entry['count']} strikes")
+                    tag_display = "Untagged" if db_tag is None else f"Tag '{db_tag}'"
+                    formatted_time = dt_obj_local.strftime("%-I:%M%p %Z")
+                    print(f"  {tag_display}: {formatted_time} - {count} strikes")
+            else:
+                self.logger.debug("Displaying strike details grouped by tag.")
+                entries_by_tag: dict[str, list[dict[str, Any]]] = {}
+                for db_tag, dt_str, count in entries:
+                    tag_key = db_tag if db_tag is not None else "Untagged"
+                    if tag_key not in entries_by_tag:
+                        entries_by_tag[tag_key] = []
+
+                    dt_obj = datetime.fromisoformat(dt_str)
+                    entries_by_tag[tag_key].append(
+                        {"datetime": dt_obj, "count": count}
+                    )
+
+                sorted_tags = sorted(entries_by_tag.keys())
+
+                for i, tag_key in enumerate(sorted_tags):
+                    if i > 0:
+                        print()
+
+                    if tag_key == "Untagged":
+                        print("Untagged Entries:")
+                    else:
+                        print(f"Details for Tag '{tag_key}':")
+
+                    for entry in entries_by_tag[tag_key]:
+                        local_dt = entry["datetime"].astimezone()
+                        formatted_dt = local_dt.strftime("%a %b %-d %Y, %-I:%M%p %Z")
+                        print(f"  {formatted_dt} - {entry['count']} strikes")
 
         except Exception as e:
             self.logger.error(f"Failed to query strike details from database: {e}")
@@ -235,7 +259,6 @@ class App:
         print(f"{constants.APP_NAME.replace('_', ' ').title()} Information:")
         print(f"  Version: {version}")
         print(f"  Database Path: {self.db.db_path.resolve()}")
-        # Add any other relevant info here in the future
 
 
 def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -269,6 +292,12 @@ def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="Display detailed strike entries, optionally filtered by --filter-tag.",
     )
     parser.add_argument(
+        "-b",
+        "--by-date",
+        action="store_true",
+        help="When used with --detail, group entries by date first, then by tag.",
+    )
+    parser.add_argument(
         "-i",
         "--info",
         action="store_true",
@@ -299,74 +328,61 @@ def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
 
-    # Validate argument combinations
-    is_add_mode = args.count_to_add is not None
-    is_add_mode = args.count_to_add is not None
-    is_count_flag = args.count  # True if --count was explicitly passed
-    is_filter_tag_mode = args.filter_tag is not None
-    is_summary_mode = args.summary
-    is_detail_mode = args.detail
-    is_info_mode = args.info
-
-    # Determine effective operation and validate argument combinations
-    # Precedence of operations: info, detail, summary, count/filter, add.
-
-    if is_info_mode:
-        if is_detail_mode or is_summary_mode or is_count_flag or is_filter_tag_mode or is_add_mode or args.session_tag:
-            parser.error(
-                "--info cannot be used with any other operations or arguments "
-                "(except --debug)."
-            )
-        # Ensure other modes are effectively off
-        args.count = False
-        args.summary = False
-        args.detail = False
-        args.count_to_add = None # Not strictly necessary as is_add_mode checks this
-        # args.filter_tag is allowed to be non-None if --info is used,
-        # but it won't be used by the info operation.
-        # To be stricter, we could error if filter_tag is present with --info.
-        # For now, we'll allow it but it will be ignored.
-
-    elif is_detail_mode:
-        if is_summary_mode:
-            parser.error("--summary cannot be used with --detail.")
-        if is_count_flag:  # Explicit --count with --detail
-            parser.error(
-                "Explicit --count cannot be used with --detail. "
-                "Use --filter-tag with --detail for filtering detailed entries."
-            )
-        if is_add_mode:  # count_to_add with --detail
-            parser.error("<count_to_add> cannot be used with --detail.")
-        if args.session_tag is not None: # session_tag with --detail
-             parser.error("[session_tag] cannot be used with --detail.")
-        args.count = False # Detail mode overrides count mode logic
-
-    elif is_summary_mode:
-        if is_count_flag or is_filter_tag_mode:
-            parser.error("--count or --filter-tag cannot be used with --summary.")
-        if is_add_mode:
-            parser.error("<count_to_add> cannot be used with --summary.")
-        if args.session_tag is not None:
-             parser.error("[session_tag] cannot be used with --summary.")
-
-    elif is_count_flag or is_filter_tag_mode:
-        args.count = True  # Normalize: if filter_tag is used, count operation is implied.
-        if is_add_mode:
-            parser.error(
-                "<count_to_add> and [session_tag] are not allowed with --count or --filter-tag."
-            )
-        if args.session_tag is not None and not is_add_mode: # session_tag without count_to_add
-             parser.error("[session_tag] is only allowed when adding strikes.")
-
-    elif is_add_mode:
-        # This is add mode. Ensure no conflicting flags are set.
-        pass # Positional args are present, other flags are not.
-
-    else:  # No count_to_add and no primary operation flags (info, detail, summary, count/filter)
+    if args.info:
+        args.operation_mode = "info"
+    elif args.detail:
+        args.operation_mode = "detail"
+    elif args.summary:
+        args.operation_mode = "summary"
+    elif args.count or args.filter_tag:
+        args.operation_mode = "count_total"
+    elif args.count_to_add is not None:
+        args.operation_mode = "add_entry"
+    else:
         parser.error(
             "<count_to_add> is required unless using --info, --count, --filter-tag, --summary, or --detail."
         )
 
+    if args.operation_mode == "info":
+        conflicting_args_for_info = [
+            args.count_to_add, args.session_tag, args.count,
+            args.summary, args.detail, args.filter_tag, args.by_date
+        ]
+        if any(arg is not None and arg is not False for arg in conflicting_args_for_info):
+            parser.error(
+                "--info cannot be used with other operational arguments like "
+                "<count_to_add>, [session_tag], --count, --summary, --detail, --filter-tag, or --by-date."
+            )
+    if args.operation_mode == "add_entry":
+        if args.session_tag is not None and args.count_to_add is None:
+             parser.error("[session_tag] can only be used when <count_to_add> is also provided.")
+        conflicting_flags_for_add = [
+            args.count, args.summary, args.detail, args.filter_tag, args.by_date, args.info
+        ]
+        if any(flag for flag in conflicting_flags_for_add):
+            parser.error(
+                "Operational flags like --count, --summary, --detail, --filter-tag, --by-date, --info "
+                "cannot be used when <count_to_add> is provided."
+            )
+    if args.operation_mode == "count_total":
+        if args.count_to_add is not None or args.session_tag is not None:
+            parser.error("<count_to_add> and [session_tag] cannot be used with --count or --filter-tag.")
+        if args.summary or args.detail or args.info or args.by_date:
+             parser.error("--summary, --detail, --info, or --by-date cannot be used with --count or --filter-tag.")
+
+    if args.operation_mode == "summary":
+        if args.count_to_add is not None or args.session_tag is not None:
+            parser.error("<count_to_add> and [session_tag] cannot be used with --summary.")
+        if args.count or args.filter_tag or args.detail or args.info or args.by_date:
+             parser.error("--count, --filter-tag, --detail, --info, or --by-date cannot be used with --summary.")
+
+    if args.operation_mode == "detail":
+        if args.count_to_add is not None or args.session_tag is not None:
+            parser.error("<count_to_add> and [session_tag] cannot be used with --detail.")
+        if args.count and not args.filter_tag:
+             parser.error("Explicit --count cannot be used with --detail. Use --filter-tag for filtering details.")
+        if args.summary or args.info:
+             parser.error("--summary or --info cannot be used with --detail.")
     return args
 
 
@@ -391,33 +407,25 @@ def main(argv: list[str] | None = None) -> int:
     try:
         app = App(db_path=constants.DEFAULT_DB_FILE, logger=logger)
 
-        if args.info:
+        if args.operation_mode == "info":
             logger.debug("Operating in info display mode.")
             app.display_app_info()
-        elif args.detail:
+        elif args.operation_mode == "detail":
             logger.debug("Operating in detail query mode.")
-            app.query_strike_details(filter_tag=args.filter_tag)
-        elif args.summary:
+            app.query_strike_details(
+                filter_tag=args.filter_tag, group_by_date=args.by_date
+            )
+        elif args.operation_mode == "summary":
             logger.debug("Operating in summary mode.")
             app.query_summary()
-        elif args.count: # True if --count or --filter-tag (and not --info/--detail/--summary)
+        elif args.operation_mode == "count_total":
             logger.debug("Operating in query total strikes mode.")
             app.query_total_strikes(filter_tag=args.filter_tag)
-        elif args.count_to_add is not None:
+        elif args.operation_mode == "add_entry":
             logger.debug("Operating in add entry mode.")
             app.add_strike_entry(
                 count_to_add=args.count_to_add, session_tag=args.session_tag
             )
-        else:
-            # This case should be caught by _parse_arguments.
-            # If it's reached, it indicates a logic flaw in argument parsing.
-            logger.error(
-                "Reached unexpected state in main dispatch. Argument parsing may be flawed."
-            )
-            # Re-running _parse_arguments with --help to show usage.
-            # This is a fallback, ideally _parse_arguments should prevent this.
-            _parse_arguments(["--help"])
-            return 1
 
     except ValueError as ve:
         logger.error(f"Input validation error: {ve}")
