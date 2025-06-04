@@ -76,7 +76,9 @@ class App:
 
         try:
             self.db.add_strike_entry(count_to_add, entry_datetime, processed_tag)
-            message = f"Successfully added {count_to_add} strikes." + (f" with tag '{processed_tag}'" if processed_tag else "")
+            message = f"Successfully added {count_to_add} strikes." + (
+                f" with tag '{processed_tag}'" if processed_tag else ""
+            )
             self.logger.debug(message)
             print(message)
         except Exception as e:
@@ -132,9 +134,7 @@ class App:
                 return
 
             print("Strike Summary:")
-            sorted_tags = sorted(
-                tag_summaries.keys(), key=lambda t: (t is None, t)
-            )
+            sorted_tags = sorted(tag_summaries.keys(), key=lambda t: (t is None, t))
 
             for tag in sorted_tags:
                 count = tag_summaries[tag]
@@ -197,13 +197,20 @@ class App:
                     dt_obj_utc = datetime.fromisoformat(dt_str)
                     dt_obj_local = dt_obj_utc.astimezone()
 
-                    current_entry_local_date_str_formatted = dt_obj_local.strftime("%a %b %-d %Y")
+                    current_entry_local_date_str_formatted = dt_obj_local.strftime(
+                        "%a %b %-d %Y"
+                    )
 
-                    if current_entry_local_date_str_formatted != current_printed_local_date_header:
+                    if (
+                        current_entry_local_date_str_formatted
+                        != current_printed_local_date_header
+                    ):
                         if current_printed_local_date_header is not None:
                             print()
                         print(f"{current_entry_local_date_str_formatted}:")
-                        current_printed_local_date_header = current_entry_local_date_str_formatted
+                        current_printed_local_date_header = (
+                            current_entry_local_date_str_formatted
+                        )
 
                     tag_display = "Untagged" if db_tag is None else f"Tag '{db_tag}'"
                     formatted_time = dt_obj_local.strftime("%-I:%M%p %Z")
@@ -217,9 +224,7 @@ class App:
                         entries_by_tag[tag_key] = []
 
                     dt_obj = datetime.fromisoformat(dt_str)
-                    entries_by_tag[tag_key].append(
-                        {"datetime": dt_obj, "count": count}
-                    )
+                    entries_by_tag[tag_key].append({"datetime": dt_obj, "count": count})
 
                 sorted_tags = sorted(entries_by_tag.keys())
 
@@ -250,9 +255,7 @@ class App:
             version = importlib.metadata.version(constants.APP_NAME)
         except importlib.metadata.PackageNotFoundError:
             self.logger.warning(
-                f"Could not find package metadata for '{constants.APP_NAME}'. "
-                "Version will be reported as 'unknown'. "
-                "This can happen if the package is not installed correctly."
+                f"Could not find package metadata for '{constants.APP_NAME}'. Version will be reported as 'unknown'. This can happen if the package is not installed correctly."
             )
             version = "unknown"
 
@@ -261,7 +264,7 @@ class App:
         print(f"  Database Path: {self.db.db_path.resolve()}")
 
 
-def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
+def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:  # noqa: C901
     """
     Parses command-line arguments for the application.
 
@@ -323,9 +326,7 @@ def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Optional tag for the session (used only when adding strikes).",
     )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug logging."
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     args = parser.parse_args(argv)
 
     if args.info:
@@ -345,44 +346,68 @@ def _parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.operation_mode == "info":
         conflicting_args_for_info = [
-            args.count_to_add, args.session_tag, args.count,
-            args.summary, args.detail, args.filter_tag, args.by_date
+            args.count_to_add,
+            args.session_tag,
+            args.count,
+            args.summary,
+            args.detail,
+            args.filter_tag,
+            args.by_date,
         ]
-        if any(arg is not None and arg is not False for arg in conflicting_args_for_info):
+        if any(
+            arg is not None and arg is not False for arg in conflicting_args_for_info
+        ):
             parser.error(
-                "--info cannot be used with other operational arguments like "
-                "<count_to_add>, [session_tag], --count, --summary, --detail, --filter-tag, or --by-date."
+                "--info cannot be used with other operational arguments like <count_to_add>, [session_tag], --count, --summary, --detail, --filter-tag, or --by-date."
             )
     if args.operation_mode == "add_entry":
         if args.session_tag is not None and args.count_to_add is None:
-             parser.error("[session_tag] can only be used when <count_to_add> is also provided.")
+            parser.error(
+                "[session_tag] can only be used when <count_to_add> is also provided."
+            )
         conflicting_flags_for_add = [
-            args.count, args.summary, args.detail, args.filter_tag, args.by_date, args.info
+            args.count,
+            args.summary,
+            args.detail,
+            args.filter_tag,
+            args.by_date,
+            args.info,
         ]
         if any(flag for flag in conflicting_flags_for_add):
             parser.error(
-                "Operational flags like --count, --summary, --detail, --filter-tag, --by-date, --info "
-                "cannot be used when <count_to_add> is provided."
+                "Operational flags like --count, --summary, --detail, --filter-tag, --by-date, --info cannot be used when <count_to_add> is provided."
             )
     if args.operation_mode == "count_total":
         if args.count_to_add is not None or args.session_tag is not None:
-            parser.error("<count_to_add> and [session_tag] cannot be used with --count or --filter-tag.")
+            parser.error(
+                "<count_to_add> and [session_tag] cannot be used with --count or --filter-tag."
+            )
         if args.summary or args.detail or args.info or args.by_date:
-             parser.error("--summary, --detail, --info, or --by-date cannot be used with --count or --filter-tag.")
+            parser.error(
+                "--summary, --detail, --info, or --by-date cannot be used with --count or --filter-tag."
+            )
 
     if args.operation_mode == "summary":
         if args.count_to_add is not None or args.session_tag is not None:
-            parser.error("<count_to_add> and [session_tag] cannot be used with --summary.")
+            parser.error(
+                "<count_to_add> and [session_tag] cannot be used with --summary."
+            )
         if args.count or args.filter_tag or args.detail or args.info or args.by_date:
-             parser.error("--count, --filter-tag, --detail, --info, or --by-date cannot be used with --summary.")
+            parser.error(
+                "--count, --filter-tag, --detail, --info, or --by-date cannot be used with --summary."
+            )
 
     if args.operation_mode == "detail":
         if args.count_to_add is not None or args.session_tag is not None:
-            parser.error("<count_to_add> and [session_tag] cannot be used with --detail.")
+            parser.error(
+                "<count_to_add> and [session_tag] cannot be used with --detail."
+            )
         if args.count and not args.filter_tag:
-             parser.error("Explicit --count cannot be used with --detail. Use --filter-tag for filtering details.")
+            parser.error(
+                "Explicit --count cannot be used with --detail. Use --filter-tag for filtering details."
+            )
         if args.summary or args.info:
-             parser.error("--summary or --info cannot be used with --detail.")
+            parser.error("--summary or --info cannot be used with --detail.")
     return args
 
 
