@@ -29,3 +29,11 @@ swc = "shock_wave_counter.main:main"
 
 [project.urls]
 "Homepage" = "https://github.com/thehunmonkgroup/shock_wave_counter"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "pyright",
+]
