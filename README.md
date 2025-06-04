@@ -120,26 +120,47 @@ To display a summary of all strikes, grouped by tag, along with a grand total, u
 
 ### Displaying Detailed Entries
 
-To display all individual strike entries, grouped by tag (alphabetically) and then by date (most recent first), use the `--detail` option.
-The date and time are shown in your system's local timezone.
+To display all individual strike entries, use the `--detail` (or `-d`) option. The date and time are shown in your system's local timezone using a format like `Wed Apr 1 2025, 9:00AM ET`.
 
-*   **Get detailed strike entries:**
+By default, entries are grouped by tag (alphabetically) and then by date (most recent first within each tag).
+
+*   **Get detailed strike entries (grouped by tag):**
     ```bash
     swc --detail
     ```
-    Example Output (if entries exist, assuming user's local timezone is EST):
+    Example Output (if entries exist, format: `Day Mon D YYYY, H:MM AM/PM TZN`):
     ```
     Details for Tag 'backsess':
-      2025-05-28 10:30:00 EST - 1000 strikes
+      Wed May 28 2025, 10:30AM EST - 1000 strikes
 
     Details for Tag 'shouldersession':
-      2025-05-30 06:15:00 EST - 2000 strikes
-      2025-05-29 05:45:00 EST - 500 strikes
+      Fri May 30 2025, 6:15AM EST - 2000 strikes
+      Thu May 29 2025, 5:45AM EST - 500 strikes
 
     Untagged Entries:
-      2025-05-27 07:00:00 EST - 1500 strikes
+      Tue May 27 2025, 7:00AM EST - 1500 strikes
     ```
-    (Note: The exact time and timezone abbreviation (e.g., EST, PDT) will depend on your system's local timezone settings and the date, due to potential Daylight Saving Time.)
+    (Note: The exact time and timezone abbreviation (e.g., EST, EDT, PDT) will depend on your system's local timezone settings and the date, due to potential Daylight Saving Time.)
+
+*   **Get detailed strike entries grouped by date (ascending), then by tag:**
+    Use the `--by-date` (or `-b`) flag in conjunction with `--detail`.
+    ```bash
+    swc --detail --by-date
+    ```
+    Example Output (format: `Day Mon D YYYY` for header, `H:MM AM/PM TZN` for time):
+    ```
+    Tue May 27 2025:
+      Untagged: 7:00AM EST - 1500 strikes
+
+    Wed May 28 2025:
+      Tag 'backsess': 10:30AM EST - 1000 strikes
+
+    Thu May 29 2025:
+      Tag 'shouldersession': 5:45AM EST - 500 strikes
+
+    Fri May 30 2025:
+      Tag 'shouldersession': 6:15AM EST - 2000 strikes
+    ```
 
     If no strikes have been recorded:
     ```
@@ -155,11 +176,11 @@ The date and time are shown in your system's local timezone.
     ```bash
     swc --detail --filter-tag shouldersession
     ```
-    Example Output (assuming user's local timezone is EST):
+    Example Output (format: `Day Mon D YYYY, H:MM AM/PM TZN`):
     ```
     Details for Tag 'shouldersession':
-      2025-05-30 06:15:00 EST - 2000 strikes
-      2025-05-29 05:45:00 EST - 500 strikes
+      Fri May 30 2025, 6:15AM EST - 2000 strikes
+      Thu May 29 2025, 5:45AM EST - 500 strikes
     ```
     Or, if no strikes are found for that tag:
     ```
